@@ -1,0 +1,28 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "YourPluginName",
+	"Description": "Description of your plugin functionality",
+	"Category": "Gameplay",
+	"CreatedBy": "MountainLabsDE",
+	"CreatedByURL": "https://github.com/MountainLabsDE",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "YourPluginName",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"WhitelistPlatforms": [
+				"Win64"
+			]
+		}
+	],
+	"Plugins": [],
+	"EnableByDefault": true
+}

@@ -1,0 +1,46 @@
+# Unreal Engine Files
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vscode/
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.suo
+*.opensdf
+*.vc.db
+*.VC.opendb
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# IDE Files
+.idea/
+.vscode/
+*.sublime-*
+
+# Build Artifacts
+Output/
+Artifacts/
+*.zip
+*.7z
+*.rar
+
+# UE5 Specific
+*.Build.cs
+.Target.cs
+
+# Local Configuration
+Config/DefaultEngine.ini.local
+Config/DefaultEditor.ini.local
+
+# Temporary Files
+tmp/
+temp/
+*.tmp

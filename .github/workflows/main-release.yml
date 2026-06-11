@@ -1,0 +1,269 @@
+name: Main - UE5 Plugin Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      ue_version:
+        description: 'UE5 Version to build'
+        required: true
+        default: '5.4.0'
+        type: choice
+        options:
+          - '5.3.0'
+          - '5.4.0'
+          - '5.5.0'
+          - '5.6.0'
+      build_config:
+        description: 'Build Configuration'
+        required: true
+        default: 'Development'
+        type: choice
+        options:
+          - 'Development'
+          - 'Shipping'
+
+jobs:
+  build:
+    name: Build UE5 Plugin - ${{ matrix.ue_version }}
+    runs-on: [self-hosted, Windows]
+    strategy:
+      matrix:
+        ue_version: ['5.3.0', '5.4.0', '5.5.0', '5.6.0']
+      fail-fast: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get plugin name
+        id: plugin_info
+        shell: pwsh
+        run: |
+          $upluginFile = Get-ChildItem -Filter "*.uplugin" | Select-Object -First 1
+          if ($upluginFile) {
+            $pluginName = $upluginFile.BaseName
+          } else {
+            $pluginName = "Plugin"
+          }
+          Write-Host "plugin_name=$pluginName" >> $env:GITHUB_OUTPUT
+          Write-Host "Plugin name: $pluginName"
+
+      - name: Get version from tag
+        id: version_info
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -match '^refs/tags/v(\d+\.\d+\.\d+)$') {
+            $version = $matches[1]
+          } else {
+            $upluginFile = Get-ChildItem -Filter "*.uplugin" | Select-Object -First 1
+            if ($upluginFile) {
+              $content = Get-Content $upluginFile.FullName -Raw
+              if ($content -match '"VersionName"\s*:\s*"([^"]+)"') {
+                $version = $matches[1]
+              } else {
+                $version = "1.0.0"
+              }
+            } else {
+              $version = "1.0.0"
+            }
+          }
+          Write-Host "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+
+      - name: Build UE5 plugin
+        shell: pwsh
+        run: |
+          $ueVersion = "${{ matrix.ue_version }}"
+          $pluginName = "${{ steps.plugin_info.outputs.plugin_name }}"
+          $version = "${{ steps.version_info.outputs.version }}"
+          
+          # Define build paths
+          $buildDir = "Build\$ueVersion"
+          $outputDir = "Output\$ueVersion\$pluginName-$version"
+          
+          Write-Host "Building $pluginName v$version for UE$ueVersion"
+          Write-Host "Build directory: $buildDir"
+          Write-Host "Output directory: $outputDir"
+          
+          # Create build directory
+          New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          
+          # Copy plugin files to build directory
+          Copy-Item -Path "Source" -Destination "$buildDir\Source" -Recurse -Force
+          Copy-Item -Path "Resources" -Destination "$buildDir\Resources" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "Config" -Destination "$buildDir\Config" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$pluginName.uplugin" -Destination "$buildDir\$pluginName.uplugin"
+          
+          # Create plugin package
+          Compress-Archive -Path "$buildDir\*" -DestinationPath "$outputDir.zip" -Force
+          
+          # Move to final location
+          Move-Item -Path "$outputDir.zip" -Destination "$outputDir.zip" -Force
+          
+          Write-Host "Build completed: $outputDir.zip"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ue-${{ matrix.ue_version }}-build
+          path: Output/${{ matrix.ue_version }}/*.zip
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: [self-hosted, Windows]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get plugin information
+        id: plugin_info
+        shell: pwsh
+        run: |
+          $upluginFile = Get-ChildItem -Filter "*.uplugin" | Select-Object -First 1
+          if ($upluginFile) {
+            $pluginName = $upluginFile.BaseName
+            $content = Get-Content $upluginFile.FullName -Raw
+            if ($content -match '"VersionName"\s*:\s*"([^"]+)"') {
+              $version = $matches[1]
+            } else {
+              $version = "1.0.0"
+            }
+          } else {
+            $pluginName = "Plugin"
+            $version = "1.0.0"
+          }
+          
+          Write-Host "plugin_name=$pluginName" >> $env:GITHUB_OUTPUT
+          Write-Host "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Plugin: $pluginName v$version"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release notes
+        id: release_notes
+        shell: pwsh
+        run: |
+          $version = "${{ steps.plugin_info.outputs.version }}"
+          $pluginName = "${{ steps.plugin_info.outputs.plugin_name }}"
+          
+          $changelogPath = "CHANGELOG.md"
+          if (Test-Path $changelogPath) {
+            $changelogContent = Get-Content $changelogPath -Raw
+            # Extract latest version changelog (simplified)
+            if ($changelogContent -match "(?s)## \[?$version\]?\s*\n(.*?)(?=\n##|\Z)") {
+              $notes = $matches[1].Trim()
+            } else {
+              $notes = "See CHANGELOG.md for details"
+            }
+          } else {
+            $notes = "Initial release"
+          }
+          
+          $releaseBody = @"
+          ## $pluginName v$version
+          
+          ### Supported UE5 Versions
+          - 5.3.0
+          - 5.4.0
+          - 5.5.0
+          - 5.6.0
+          
+          ### Installation
+          1. Download the appropriate plugin package for your UE5 version
+          2. Extract to your project's Plugins folder
+          3. Restart Unreal Editor
+          4. Enable the plugin in Edit > Plugins
+          
+          ### What's Changed
+          $notes
+          
+          ### Downloads
+          "@
+          
+          Set-Content -Path "release_notes.md" -Value $releaseBody
+          Write-Host "Release notes generated"
+
+      - name: Update existing release
+        id: update_release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.plugin_info.outputs.version }}"
+          $tagName = "v$version"
+          
+          # Try to get existing release
+          $release = gh api "repos/{owner}/{repo}/releases/tags/$tagName" 2>$null
+          
+          if ($release) {
+            Write-Host "Updating existing release: $tagName"
+            
+            $releaseBody = Get-Content "release_notes.md" -Raw
+            
+            gh api --method PATCH "repos/{owner}/{repo}/releases/$($release.id)" `
+              -f name="$pluginName v$version" `
+              -f body="$releaseBody" `
+              --jq '.id'
+              
+            $releaseId = $release.id
+          } else {
+            Write-Host "Release not found, will create new one"
+            $releaseId = ""
+          }
+          
+          Write-Host "release_id=$releaseId" >> $env:GITHUB_OUTPUT
+
+      - name: Create new release if needed
+        if: steps.update_release.outputs.release_id == ''
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.plugin_info.outputs.version }}"
+          $pluginName = "${{ steps.plugin_info.outputs.plugin_name }}"
+          $tagName = "v$version"
+          
+          $releaseBody = Get-Content "release_notes.md" -Raw
+          
+          gh release create "$tagName" `
+            --title "$pluginName v$version" `
+            --notes "$releaseBody" `
+            --generate-notes
+          
+          Write-Host "Created new release: $tagName"
+
+      - name: Upload UE5 builds to release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.plugin_info.outputs.version }}"
+          $tagName = "v$version"
+          
+          # Upload each UE version build
+          Get-ChildItem -Path "artifacts" -Recurse -Filter "*.zip" | ForEach-Object {
+            $artifactPath = $_.FullName
+            $artifactName = $_.BaseName
+            Write-Host "Uploading: $artifactName"
+            
+            gh release upload "$tagName" "$artifactPath" `
+              --clobber `
+              --label "$artifactName"
+          }
+          
+          Write-Host "All builds uploaded to release"

@@ -1,0 +1,176 @@
+name: Development - Auto Versioning
+
+on:
+  push:
+    branches: [development]
+    paths:
+      - 'Source/**'
+      - '*.uplugin'
+  pull_request:
+    branches: [development]
+    paths:
+      - 'Source/**'
+      - '*.uplugin'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dev-auto-version:
+    name: Development Auto-Versioning
+    runs-on: [self-hosted, Windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine version increment
+        id: version_type
+        shell: pwsh
+        run: |
+          $commitMsg = git log -1 --pretty=format:"%s"
+          $commitBody = git log -1 --pretty=format:"%b"
+          $fullCommit = "$commitMsg $commitBody"
+          
+          Write-Host "Analyzing commit: $fullCommit"
+          
+          # Development branch always uses patch increments
+          Write-Host "increment_type=patch" >> $env:GITHUB_OUTPUT
+
+      - name: Get current version
+        id: current_version
+        shell: pwsh
+        run: |
+          $upluginFile = Get-ChildItem -Filter "*.uplugin" | Select-Object -First 1
+          if ($upluginFile) {
+            $content = Get-Content $upluginFile.FullName -Raw
+            if ($content -match '"VersionName"\s*:\s*"([^"]+)"') {
+              $version = $matches[1]
+            } else {
+              $version = "0.0.0"
+            }
+          } else {
+            $version = "0.0.0"
+          }
+          
+          Write-Host "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Calculate new version
+        id: next_version
+        shell: pwsh
+        run: |
+          $currentVersion = "${{ steps.current_version.outputs.version }}"
+          if (-not ($currentVersion -match '^\d+\.\d+\.\d+$')) {
+            $currentVersion = "0.0.0"
+          }
+          
+          $parts = $currentVersion -split '\.'
+          $major = [int]$parts[0]
+          $minor = [int]$parts[1]
+          $patch = [int]$parts[2]
+          
+          # Development always increments patch
+          $patch++
+          $newVersion = "$major.$minor.$patch-dev"
+          
+          Write-Host "version=$newVersion" >> $env:GITHUB_OUTPUT
+          Write-Host "Next development version: $newVersion"
+
+      - name: Update plugin version
+        shell: pwsh
+        run: |
+          $newVersion = "${{ steps.next_version.outputs.version }}"
+          # Remove -dev suffix for plugin file
+          $versionName = $newVersion -replace '-dev$', ''
+          
+          $upluginFile = Get-ChildItem -Filter "*.uplugin" | Select-Object -First 1
+          if ($upluginFile) {
+            $parts = $versionName -split '\.'
+            $major = [int]$parts[0]
+            $minor = [int]$parts[1]
+            $patch = [int]$parts[2]
+            $versionInt = $major * 10000 + $minor * 100 + $patch
+            
+            $content = Get-Content $upluginFile.FullName -Raw
+            $content = $content -replace '"VersionName"[^:]*:\s*"[^"]*"', '"VersionName": "' + $versionName + '"'
+            $content = $content -replace '"Version"\s*:\s*\d+', '"Version": ' + $versionInt
+            Set-Content $upluginFile.FullName $content -NoNewline
+            
+            Write-Host "Updated version to: $versionName ($versionInt)"
+          }
+
+      - name: Commit version changes
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          $newVersion = "${{ steps.next_version.outputs.version }}"
+          git add *.uplugin
+          
+          $diff = git diff --staged --quiet 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No version changes to commit"
+          } else {
+            git commit -m "chore: auto-version to $newVersion [skip ci]"
+            git push origin development
+            Write-Host "Version changes pushed to development"
+          }
+
+  dev-validation:
+    name: Development Validation
+    runs-on: [self-hosted, Windows]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate plugin structure
+        shell: pwsh
+        run: |
+          Write-Host "Validating plugin structure..."
+          
+          # Check for .uplugin file
+          $upluginFile = Get-ChildItem -Filter "*.uplugin"
+          if (-not $upluginFile) {
+            Write-Host "::error::No .uplugin file found"
+            exit 1
+          }
+          
+          # Validate JSON structure
+          try {
+            $content = Get-Content $upluginFile.FullName -Raw | ConvertFrom-Json
+            Write-Host "Plugin structure validation passed"
+          } catch {
+            Write-Host "::error::Invalid JSON in .uplugin file"
+            exit 1
+          }
+
+      - name: Validate version format
+        shell: pwsh
+        run: |
+          $upluginFile = Get-ChildItem -Filter "*.uplugin" | Select-Object -First 1
+          $content = Get-Content $upluginFile.FullName -Raw
+          if ($content -match '"VersionName"\s*:\s*"([^"]+)"') {
+            $version = $matches[1]
+          } else {
+            $version = "0.0.0"
+          }
+          
+          if (-not ($version -match '^\d+\.\d+\.\d+$')) {
+            Write-Host "::error::Invalid version format: $version"
+            exit 1
+          }
+          
+          Write-Host "Version validation passed: $version"
