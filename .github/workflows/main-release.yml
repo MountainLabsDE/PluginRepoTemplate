@@ -28,7 +28,7 @@ on:
 jobs:
   build:
     name: Build UE5 Plugin - ${{ matrix.ue_version }}
-    runs-on: [self-hosted, Windows]
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         ue_version: ['5.3.0', '5.4.0', '5.5.0', '5.6.0']
@@ -118,7 +118,7 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: [self-hosted, Windows]
+    runs-on: ubuntu-latest
     
     steps:
       - name: Checkout repository

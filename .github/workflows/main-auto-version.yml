@@ -22,7 +22,7 @@ concurrency:
 jobs:
   main-auto-version:
     name: Main Auto-Versioning
-    runs-on: [self-hosted, Windows]
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
@@ -170,7 +170,7 @@ jobs:
 
   main-validation:
     name: Main Validation
-    runs-on: [self-hosted, Windows]
+    runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     
     steps:

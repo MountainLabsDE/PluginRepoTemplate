@@ -22,7 +22,7 @@ concurrency:
 jobs:
   dev-auto-version:
     name: Development Auto-Versioning
-    runs-on: [self-hosted, Windows]
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/development'
     
     steps:
@@ -127,7 +127,7 @@ jobs:
 
   dev-validation:
     name: Development Validation
-    runs-on: [self-hosted, Windows]
+    runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     
     steps:
